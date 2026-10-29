@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -200,6 +201,159 @@ func TestRestrictedBrowsingAndLocalOverrides(t *testing.T) {
 	}
 	if bytes.Contains(b, []byte(c.PixivDir)) || bytes.Contains(b, []byte("raw_metadata")) {
 		t.Fatal("接口泄露存储信息")
+	}
+}
+
+func TestUploadResumeManifestChangesAndAccess(t *testing.T) {
+	t.Setenv("ARCHIVE_ADMIN_PASSWORD", "test-admin-password")
+	base := t.TempDir()
+	data := filepath.Join(base, "data")
+	source := filepath.Join(base, "source")
+	for _, dir := range []string{data, source, filepath.Join(source, "folder")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "hidden.txt"), []byte("hidden"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{DataDir: data}
+	st, err := store.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { st.DB.Close() }()
+	m := media.New(c)
+	app, err := New(st, m, queue.New(st, m, c), c, fstest.MapFS{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.Handler()
+	var cookies []*http.Cookie
+	request := func(method, path string, body []byte, binary bool, origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://artkeep.test"+path, bytes.NewReader(body))
+		if method != "GET" {
+			req.Header.Set("Content-Type", "application/json")
+			if binary {
+				req.Header.Set("Content-Type", "application/octet-stream")
+			}
+		}
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	if r := request("GET", "/api/admin/directories", nil, false, ""); r.Code != 401 {
+		t.Fatal("目录未要求管理员登录")
+	}
+	login := request("POST", "/api/admin/session", []byte(`{"password":"test-admin-password"}`), false, "")
+	if login.Code != 200 {
+		t.Fatal("登录失败", login.Body.String())
+	}
+	cookies = login.Result().Cookies()
+	r := request("GET", "/api/admin/directories?path="+url.QueryEscape(source), nil, false, "")
+	if r.Code != 200 || strings.Contains(r.Body.String(), "hidden.txt") || !strings.Contains(r.Body.String(), "folder") {
+		t.Fatal("目录浏览包含文件或缺失目录", r.Body.String())
+	}
+	for _, path := range []string{"../escape.png", "/absolute.png", "C:/escape.png", "root/../x.png", "root\\x.png", "root/NUL.png", "root/folder./x.png"} {
+		raw, _ := json.Marshal(map[string]any{"name": "root", "files": []uploadFile{{Path: path, Size: 1}}})
+		if r := request("POST", "/api/admin/uploads", raw, false, ""); r.Code != 400 {
+			t.Fatalf("接受危险上传路径 %s", path)
+		}
+	}
+	manifest := []uploadFile{{Path: "root/large.epub", Size: uploadChunkSize + 5, Modified: 10}, {Path: "root/small.png", Size: 3, Modified: 20}}
+	create := func(id string) uploadSession {
+		raw, _ := json.Marshal(map[string]any{"id": id, "name": "root", "files": manifest})
+		r := request("POST", "/api/admin/uploads", raw, false, "")
+		if r.Code != 200 {
+			t.Fatal(r.Body.String())
+		}
+		var v uploadSession
+		if err := json.Unmarshal(r.Body.Bytes(), &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	upload := create("")
+	prefix := "/api/admin/uploads/" + upload.ID
+	chunk := bytes.Repeat([]byte("a"), int(uploadChunkSize))
+	if r := request("PUT", prefix+"/files/0?offset=0", chunk, true, "https://other.example"); r.Code != 403 {
+		t.Fatal("分块未检查请求来源")
+	}
+	savedCookies := cookies
+	cookies = nil
+	if r := request("PUT", prefix+"/files/0?offset=0", chunk, true, ""); r.Code != 401 {
+		t.Fatal("分块未检查管理员权限")
+	}
+	cookies = savedCookies
+	if r := request("PUT", prefix+"/files/0?offset=0", chunk, true, ""); r.Code != 200 {
+		t.Fatal("8MiB 分块受普通 JSON 限额影响", r.Body.String())
+	}
+	if r := request("PUT", prefix+"/files/1?offset=0", []byte("png"), true, ""); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	if r := request("PUT", prefix+"/files/0?offset=0", []byte("wrong"), true, ""); r.Code != 409 {
+		t.Fatal("接受错误续传偏移")
+	}
+	if r := request("POST", prefix+"/complete", []byte(`{"rating":0}`), false, ""); r.Code != 409 {
+		t.Fatal("未完成上传已进入解析")
+	}
+	if err = st.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = store.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err = New(st, m, queue.New(st, m, c), c, fstest.MapFS{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler = app.Handler()
+	resumed := create(upload.ID)
+	if resumed.Files[0].Offset != uploadChunkSize || resumed.Files[1].Offset != 3 {
+		t.Fatal("重启未恢复分块偏移")
+	}
+	manifest[0].Modified = 11
+	resumed = create(upload.ID)
+	if resumed.Files[0].Offset != 0 || resumed.Files[1].Offset != 3 {
+		t.Fatal("文件变更未单独重传")
+	}
+	if r := request("PUT", prefix+"/files/0?offset=0", chunk, true, ""); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	if r := request("PUT", prefix+"/files/0?offset="+strconv.FormatInt(uploadChunkSize, 10), []byte("12345"), true, ""); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	complete := request("POST", prefix+"/complete", []byte(`{"rating":1}`), false, "")
+	if complete.Code != 202 {
+		t.Fatal(complete.Body.String())
+	}
+	again := request("POST", prefix+"/complete", []byte(`{"rating":1}`), false, "")
+	if again.Code != 200 {
+		t.Fatal(again.Body.String())
+	}
+	jobs, err := st.Jobs()
+	if err != nil || len(jobs) != 1 {
+		t.Fatal("完成接口重复入队", err)
+	}
+	if r := request("DELETE", prefix, []byte(`{}`), false, ""); r.Code != 409 {
+		t.Fatal("允许取消正在解析的上传")
+	}
+	other := create("")
+	if r := request("PUT", "/api/admin/uploads/"+other.ID+"/files/1?offset=0", []byte("png"), true, ""); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	if r := request("DELETE", "/api/admin/uploads/"+other.ID, []byte(`{}`), false, ""); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	if _, err = os.Stat(app.uploadPath(upload.ID, "root/large.epub")); err != nil {
+		t.Fatal("取消上传删除了其他会话")
 	}
 }
 

@@ -2,13 +2,13 @@ package queue
 
 import (
 	"collection/internal/config"
-	"collection/internal/importer"
 	"collection/internal/media"
 	"collection/internal/model"
 	"collection/internal/store"
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -84,19 +84,14 @@ func (q *Queue) Run(ctx context.Context) {
 			continue
 		}
 		switch j.Kind {
+		case "batch":
+			err = q.batch(ctx, &j)
 		case "pixiv":
-			p := importer.Pixiv{Store: q.Store, Media: q.Media, Root: q.Config.PixivDir}
-			_, err = p.Scan(ctx, func(done, total int, message string) {
-				j.Progress = done
-				j.Total = total
-				j.Error = message
-				if e := q.Store.UpdateJob(j); e != nil {
-					log.Printf("更新导入进度失败: %v", e)
-				}
-			})
+			j.Input = fmt.Sprintf(`{"source":"server","path":%q}`, q.Config.PixivDir)
+			err = q.batch(ctx, &j)
 		case "x":
 			var id int64
-			id, err = q.downloadX(ctx, &j)
+			id, _, err = q.downloadURL(ctx, j.ID, j.Input, 0, nil)
 			if err == nil {
 				j.WorkID = &id
 			}
@@ -108,6 +103,9 @@ func (q *Queue) Run(ctx context.Context) {
 			j.Error = "服务已停止，可重试继续"
 		} else if err != nil {
 			j.Status = "failed"
+			if current, e := q.Store.Job(j.ID); e == nil && current.Failed > 0 && current.Succeeded+current.Existing > 0 {
+				j.Status = "partial"
+			}
 			j.Error = err.Error()
 		} else {
 			j.Status = "completed"

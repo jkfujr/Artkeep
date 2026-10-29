@@ -13,6 +13,8 @@
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.2.7",
     "@tailwindcss/vite": "^4.3.3",
+    "dompurify": "3.4.17",
+    "foliate-js": "https://codeload.github.com/johnfactotum/foliate-js/tar.gz/78914aef4466eb960965702401634c2cb348e9b1",
     "lucide-react": "^1.64.0",
     "react": "^19.3.1",
     "react-aria": "^3.53.1",

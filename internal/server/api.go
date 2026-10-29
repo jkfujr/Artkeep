@@ -1,6 +1,7 @@
 package server
 
 import (
+	"collection/internal/importer"
 	"collection/internal/model"
 	"collection/internal/queue"
 	"database/sql"
@@ -316,43 +317,65 @@ func (s *Server) imports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Kind string `json:"kind"`
-		URL  string `json:"url"`
+		Kind     string   `json:"kind"`
+		URL      string   `json:"url"`
+		URLs     []string `json:"urls"`
+		Path     string   `json:"path"`
+		UploadID string   `json:"uploadId"`
+		Rating   int      `json:"rating"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	kind, key, value := input.Kind, "", ""
-	switch kind {
-	case "pixiv":
-		if s.Config.PixivDir == "" {
-			fail(w, 400, "directory_missing", "尚未配置 Pixiv 收藏目录")
-			return
-		}
-		key = "pixiv"
-		value = "Pixiv 收藏目录"
-	case "x":
-		id, canonical, err := queue.NormalizeX(input.URL)
-		if err != nil {
-			fail(w, 400, "invalid_url", err.Error())
-			return
-		}
-		existing, _, ready, err := s.Store.Find("x", "tweet", id)
-		if err != nil {
-			s.internal(w, err)
-			return
-		}
-		if existing > 0 && ready {
-			respond(w, 200, map[string]any{"existing": true, "workId": strconv.FormatInt(existing, 10)})
-			return
-		}
-		key = id
-		value = canonical
-	default:
-		fail(w, 400, "invalid_kind", "不支持的导入类型")
+	batch := queue.BatchInput{Source: input.Kind, Rating: input.Rating}
+	if batch.Rating < 0 || batch.Rating > 2 {
+		fail(w, 400, "invalid_rating", "分级无效")
 		return
 	}
-	job, err := s.Queue.Enqueue(kind, key, value)
+	switch input.Kind {
+	case "url", "x":
+		batch.Source = "url"
+		batch.URLs = input.URLs
+		if len(batch.URLs) == 0 {
+			batch.URLs = strings.Split(input.URL, "\n")
+		}
+		clean := []string{}
+		for _, value := range batch.URLs {
+			if value = strings.TrimSpace(value); value != "" {
+				clean = append(clean, value)
+			}
+		}
+		batch.URLs = clean
+		if len(batch.URLs) == 0 || len(batch.URLs) > 1000 {
+			fail(w, 400, "invalid_urls", "每批支持 1 至 1000 个链接")
+			return
+		}
+	case "pixiv", "server":
+		batch.Source = "server"
+		batch.Path = input.Path
+		if input.Kind == "pixiv" {
+			batch.Path = s.Config.PixivDir
+		}
+		var err error
+		batch.Path, err = importer.Directory(batch.Path, s.Config.DataDir)
+		if err != nil {
+			fail(w, 400, "invalid_directory", err.Error())
+			return
+		}
+	case "migration":
+	case "upload":
+		s.completeUploadImport(w, r, input.UploadID, batch.Rating)
+		return
+	default:
+		fail(w, 400, "invalid_kind", "不支持的导入来源")
+		return
+	}
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	job, err := s.Queue.Enqueue("batch", string(encoded), string(encoded))
 	if err != nil {
 		s.internal(w, err)
 		return

@@ -22,5 +22,5 @@ export function Dialog({ title, open, onClose, children, footer, wide = false }:
   </Modal.Backdrop></Modal>
 }
 export function ErrorNotice({ children }: { children: ReactNode }) { return children ? <div className="error-notice" role="alert">{children}</div> : null }
-export function Platform({ platform }: { platform: string }) { return <span className={`platform platform-${platform}`}><span className="platform-dot" />{platform === 'pixiv' ? 'Pixiv' : 'X'}</span> }
+export function Platform({ platform }: { platform: string }) { return <span className={`platform platform-${platform}`}><span className="platform-dot" />{platform === 'pixiv' ? 'Pixiv' : platform === 'local' ? '本地' : 'X'}</span> }
 export function Rating({ rating }: { rating: number }) { return rating > 0 ? <span className={`rating rating-${rating}`}>{rating === 2 ? 'R-18G' : 'R-18'}</span> : null }

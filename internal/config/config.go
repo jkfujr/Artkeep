@@ -8,14 +8,15 @@ import (
 )
 
 type Config struct {
-	Listen      string `json:"listen"`
-	DataDir     string `json:"data_dir"`
-	PixivDir    string `json:"pixiv_dir"`
-	GalleryDL   string `json:"gallery_dl"`
-	FFmpeg      string `json:"ffmpeg"`
-	FFprobe     string `json:"ffprobe"`
-	CookiesFile string `json:"cookies_file"`
-	Proxy       string `json:"proxy"`
+	Listen            string `json:"listen"`
+	DataDir           string `json:"data_dir"`
+	PixivDir          string `json:"pixiv_dir"`
+	GalleryDL         string `json:"gallery_dl"`
+	FFmpeg            string `json:"ffmpeg"`
+	FFprobe           string `json:"ffprobe"`
+	CookiesFile       string `json:"cookies_file"`
+	Proxy             string `json:"proxy"`
+	PixivRefreshToken string `json:"pixiv_refresh_token"`
 }
 
 func Load(path string) (Config, error) {
@@ -35,6 +36,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 	var err error
+	if v, ok := os.LookupEnv("ARCHIVE_PIXIV_REFRESH_TOKEN"); ok {
+		c.PixivRefreshToken = v
+	}
 	if c.DataDir, err = filepath.Abs(c.DataDir); err != nil {
 		return c, err
 	}

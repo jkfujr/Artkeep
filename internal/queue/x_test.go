@@ -2,7 +2,10 @@ package queue
 
 import (
 	"collection/internal/config"
+	"collection/internal/importer"
 	"collection/internal/media"
+	"collection/internal/model"
+	"collection/internal/store"
 	"encoding/json"
 	"image"
 	"image/png"
@@ -23,6 +26,71 @@ func TestNormalizeX(t *testing.T) {
 		if _, _, err := NormalizeX(raw); err == nil {
 			t.Fatalf("接受了不支持的链接: %s", raw)
 		}
+	}
+}
+
+func TestMixedBatchDedupAndRetryFailuresOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "staging"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.DB.Close()
+	c := config.Config{DataDir: dir}
+	m := media.New(c)
+	q := New(st, m, c)
+	path := filepath.Join(dir, "source.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(f, image.NewRGBA(image.Rect(0, 0, 12, 16)))
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := importer.Collection{Store: st, Media: m, Config: c}
+	id, _, err := collection.Import(t.Context(), importer.Candidate{Work: model.Work{Platform: "pixiv", SourceKind: "artwork", SourceID: "123", AuthorID: "42", Title: "作品"}, Files: []string{path}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(BatchInput{Source: "url", URLs: []string{"https://www.pixiv.net/artworks/123?source=abc", "https://www.pixiv.net/en/artworks/123", "https://x.com/user"}})
+	j, err := q.Enqueue("batch", "mixed", string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.batch(t.Context(), &j); err == nil {
+		t.Fatal("部分失败没有返回错误")
+	}
+	j.Status = "partial"
+	if err = q.Store.UpdateJob(j); err != nil {
+		t.Fatal(err)
+	}
+	result, err := st.Job(j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 2 || result.Existing != 1 || result.Failed != 1 || result.Items[0].WorkID == nil || *result.Items[0].WorkID != id {
+		t.Fatalf("批次明细错误: %+v", result)
+	}
+	retried, err := q.Retry(j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.Items[0].Status != "existing" || retried.Items[1].Status != "queued" {
+		t.Fatal("重试改动成功项")
+	}
+	for _, url := range []string{"https://www.pixiv.net/users/123", "https://www.pixiv.net/novel/series/123", "https://www.pixiv.net/artworks/123/extra", "https://www.pixiv.net:8443/artworks/123", "https://www.pixiv.net/novel/show.php?id=abc"} {
+		if _, _, _, _, err = NormalizeURL(url); err == nil {
+			t.Fatalf("接受非单作品 URL: %s", url)
+		}
+	}
+	p, k, source, canonical, err := NormalizeURL("https://www.pixiv.net/novel/show.php?foo=bar&id=123#x")
+	if err != nil || p != "pixiv" || k != "novel" || source != "123" || canonical != "https://www.pixiv.net/novel/show.php?id=123" {
+		t.Fatal("小说 URL 规范化失败")
 	}
 }
 

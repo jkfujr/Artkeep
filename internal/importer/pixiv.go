@@ -130,9 +130,6 @@ func (p *Pixiv) Scan(ctx context.Context, progress func(int, int, string)) (int,
 	if failures > 0 {
 		return len(seen), fmt.Errorf("%d 部作品导入失败；%s", failures, firstError)
 	}
-	if err = p.Store.MarkMissingPixiv(seen); err != nil {
-		return len(seen), err
-	}
 	return len(seen), nil
 }
 

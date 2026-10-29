@@ -6,5 +6,6 @@
   "ffmpeg": "ffmpeg",
   "ffprobe": "ffprobe",
   "cookies_file": "",
+  "pixiv_refresh_token": "",
   "proxy": ""
 }

@@ -14,15 +14,17 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 )
 
 type Server struct {
-	Store   *store.Store
-	Media   *media.Service
-	Queue   *queue.Queue
-	Config  config.Config
-	Web     fs.FS
-	Limiter limiter
+	Store    *store.Store
+	Media    *media.Service
+	Queue    *queue.Queue
+	Config   config.Config
+	Web      fs.FS
+	Limiter  limiter
+	uploadMu sync.Mutex
 }
 
 func New(st *store.Store, m *media.Service, q *queue.Queue, c config.Config, web fs.FS) (*Server, error) {
@@ -50,6 +52,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/admin/settings", s.settings)
 	mux.HandleFunc("PATCH /api/admin/settings", s.settings)
 	mux.HandleFunc("POST /api/admin/imports", s.imports)
+	mux.HandleFunc("GET /api/admin/directories", s.directories)
+	mux.HandleFunc("POST /api/admin/uploads", s.uploadCreate)
+	mux.HandleFunc("GET /api/admin/uploads/{upload}", s.uploadGet)
+	mux.HandleFunc("PUT /api/admin/uploads/{upload}/files/{file}", s.uploadChunk)
+	mux.HandleFunc("POST /api/admin/uploads/{upload}/complete", s.uploadComplete)
+	mux.HandleFunc("DELETE /api/admin/uploads/{upload}", s.uploadCancel)
 	mux.HandleFunc("GET /api/admin/jobs", s.jobs)
 	mux.HandleFunc("POST /api/admin/jobs/{id}/retry", s.retry)
 	mux.HandleFunc("PATCH /api/admin/works/{id}", s.edit)
@@ -59,7 +67,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src blob:; frame-ancestors 'none'; base-uri 'self'")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
@@ -75,7 +83,8 @@ func (s *Server) Handler() http.Handler {
 				fail(w, 403, "origin_denied", "请求来源无效")
 				return
 			}
-			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			binaryUpload := r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/api/admin/uploads/") && strings.HasPrefix(r.Header.Get("Content-Type"), "application/octet-stream")
+			if !binaryUpload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				fail(w, 415, "invalid_content_type", "请求格式错误")
 				return
 			}

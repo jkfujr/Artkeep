@@ -1,15 +1,19 @@
 package importer
 
 import (
+	"archive/zip"
 	"collection/internal/config"
 	"collection/internal/media"
 	"collection/internal/model"
 	"collection/internal/store"
+	"encoding/json"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -95,5 +99,214 @@ func TestPixivScanGroupsPagesAndPreservesEdits(t *testing.T) {
 	}
 	if _, err = scanner.Scan(t.Context(), progress); err == nil {
 		t.Fatal("空目录扫描被计为成功")
+	}
+}
+
+func TestCollectionCopyDedupAndMigration(t *testing.T) {
+	base := t.TempDir()
+	data := filepath.Join(base, "data")
+	source := filepath.Join(base, "source")
+	if err := os.MkdirAll(filepath.Join(data, "staging"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{DataDir: data, PixivDir: source}
+	st, err := store.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.DB.Close()
+	m := media.New(c)
+	collection := Collection{Store: st, Media: m, Config: c}
+	write := func(name string, width int) string {
+		path := filepath.Join(source, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, image.NewRGBA(image.Rect(0, 0, width, 12)))
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	second := write("album/2.png", 16)
+	tenth := write("album/10.png", 20)
+	candidates, err := collection.Discover(t.Context(), source, 1)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("本地归组失败: %v %+v", err, candidates)
+	}
+	if candidates[0].Files[0] != second || candidates[0].Files[1] != tenth {
+		t.Fatal("自然排序错误")
+	}
+	id, exists, err := collection.Import(t.Context(), candidates[0], nil)
+	if err != nil || exists {
+		t.Fatalf("本地导入失败: %v", err)
+	}
+	w, err := st.Work(id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Platform != "local" || w.SourceURL != "" || w.AuthorName != "" || w.PublishedAt != "" || w.Rating != 1 {
+		t.Fatalf("本地来源被虚构: %+v", w)
+	}
+	again, exists, err := collection.Import(t.Context(), candidates[0], nil)
+	if err != nil || !exists || again != id {
+		t.Fatalf("本地内容去重失败: %d %v", again, err)
+	}
+	if err = os.RemoveAll(filepath.Join(source, "album")); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range w.Assets {
+		if _, err = m.Resolve(a); err != nil {
+			t.Fatal("导入仍依赖原目录", err)
+		}
+	}
+	legacy := write("123.png", 16)
+	a, err := m.Inspect(t.Context(), "pixiv", source, legacy, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := model.Work{Platform: "pixiv", SourceKind: "artwork", SourceID: "123", AuthorID: "42", AuthorName: "作者", Title: "原作", SourceRating: 2, Ready: true, Root: "pixiv", Raw: `{"id":123}`}
+	if err = st.UpsertWork(&original, []model.Asset{a}); err != nil {
+		t.Fatal(err)
+	}
+	override := 1
+	if err = st.EditWork(original.ID, []string{"人工标签"}, &override); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := st.Work(original.ID, true)
+	if err = collection.Migrate(t.Context(), original.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := st.Work(original.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ID != after.ID || before.Assets[0].ID != after.Assets[0].ID || before.AddedAt != after.AddedAt || after.Rating != 1 || after.LocalTags[0] != "人工标签" || after.Root != "collection" {
+		t.Fatalf("迁移改变人工信息或 ID: %+v", after)
+	}
+	copied, err := m.Resolve(after.Assets[0])
+	if err != nil || !Within(data, copied) {
+		t.Fatal("迁移路径未进入 data", err)
+	}
+	if _, err = os.Stat(legacy); err != nil {
+		t.Fatal("来源被删除")
+	}
+	if err = collection.Migrate(t.Context(), original.ID, func(int64) { t.Fatal("已完成作品被再次复制") }); err != nil {
+		t.Fatal(err)
+	}
+	novel := original
+	novel.ID = 0
+	novel.SourceKind = "novel"
+	if err = st.UpsertWork(&novel, []model.Asset{a}); err != nil {
+		t.Fatal(err)
+	}
+	if novel.ID == original.ID {
+		t.Fatal("插画与小说 ID 冲突")
+	}
+	missing := original
+	missing.ID = 0
+	missing.SourceID = "999"
+	a.Path = "missing.png"
+	if err = st.UpsertWork(&missing, []model.Asset{a}); err != nil {
+		t.Fatal(err)
+	}
+	if err = collection.Migrate(t.Context(), missing.ID, nil); err == nil {
+		t.Fatal("缺失来源被计为迁移成功")
+	}
+	unchanged, _ := st.Work(missing.ID, true)
+	if unchanged.Root != "pixiv" || unchanged.Assets[0].Path != "missing.png" {
+		t.Fatal("失败迁移改写了原路径")
+	}
+	replacement := write("another/123_p0.png", 16)
+	candidate := Candidate{Work: original, Files: []string{replacement}, Raw: `{}`}
+	found, exists, err := collection.Import(t.Context(), candidate, nil)
+	if err != nil || !exists || found != original.ID {
+		t.Fatalf("平台去重失败: %v", err)
+	}
+	ids, err := st.MigrationIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(ids, original.ID) || !slices.Contains(ids, missing.ID) {
+		t.Fatal("迁移重试未跳过已完成作品")
+	}
+}
+
+func TestFolderMetadataAndNovelEPUB(t *testing.T) {
+	base := t.TempDir()
+	source := filepath.Join(base, "source")
+	data := filepath.Join(base, "data")
+	for _, dir := range []string{source, filepath.Join(data, "staging")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	imagePath := filepath.Join(source, "123_p0.png")
+	f, err := os.Create(imagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(f, image.NewRGBA(image.Rect(0, 0, 16, 12)))
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := map[string]any{"category": "pixiv", "id": 123, "user": map[string]any{"id": 42, "name": "作者"}, "title": "测试", "x_restrict": 2, "page_count": 1, "tags": []string{"标签"}, "date": "2026-01-01 00:00:00"}
+	raw, _ := json.Marshal(meta)
+	if err = os.WriteFile(imagePath+".json", raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	collection := Collection{Config: config.Config{DataDir: data}}
+	candidates, err := collection.Discover(t.Context(), source, 0)
+	if err != nil || len(candidates) != 1 || candidates[0].Work.Platform != "pixiv" || candidates[0].Work.SourceRating != 2 || len(candidates[0].Files) != 1 {
+		t.Fatalf("JSON 未关联媒体: %+v %v", candidates, err)
+	}
+	if _, err = Directory(data, data); err == nil {
+		t.Fatal("允许导入数据目录")
+	}
+	epub := filepath.Join(base, "novel.epub")
+	body := "[chapter:序章]\n正文 [[rb:漢字 > かんじ]]\n[newpage]\n[pixivimage:123-1]\n<script>alert(1)</script>"
+	if err = WriteNovelEPUB(epub, "标题", "作者", body, map[string]string{"pixivimage:123-1": imagePath}); err != nil {
+		t.Fatal(err)
+	}
+	book, err := zip.OpenReader(epub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer book.Close()
+	var chapters, images int
+	for _, entry := range book.File {
+		if strings.Contains(entry.Name, "images/") {
+			images++
+		}
+		if strings.HasPrefix(entry.Name, "OEBPS/chapter-") {
+			chapters++
+			reader, e := entry.Open()
+			if e != nil {
+				t.Fatal(e)
+			}
+			content, e := io.ReadAll(reader)
+			reader.Close()
+			if e != nil {
+				t.Fatal(e)
+			}
+			if strings.Contains(string(content), "<script>") {
+				t.Fatal("正文标记未转义")
+			}
+		}
+	}
+	if chapters != 2 || images != 1 {
+		t.Fatalf("章节或插图丢失: %d %d", chapters, images)
+	}
+	if err = WriteNovelEPUB(filepath.Join(base, "missing.epub"), "标题", "作者", body, nil); err == nil {
+		t.Fatal("缺失插图被当成完整小说")
 	}
 }

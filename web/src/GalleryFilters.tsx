@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Label, Switch, TextField } from '@heroui/react'
-import { Check } from 'lucide-react'
+import { Check, LockKeyhole } from 'lucide-react'
 import type { AuthorCount, TagCount, YearCount } from './api'
 import { Choice, ErrorNotice, Platform } from './ui'
+import { useApp } from './App'
 
 export interface DisplaySettings { columns: string; gap: number; fullWidth: boolean; fit: string }
 export const defaultDisplay: DisplaySettings = { columns: 'auto', gap: 24, fullWidth: false, fit: 'contain' }
@@ -15,14 +16,15 @@ export function readDisplay(): DisplaySettings {
 export const shapeOptions = [{ key: 'landscape', label: '横向' }, { key: 'portrait', label: '竖向' }, { key: 'square', label: '正方形' }, ...['4:3', '16:9', '21:9', '3:4', '9:16', '9:21'].map(key => ({ key, label: key }))]
 
 interface Props {
-  params: URLSearchParams; update: (params: URLSearchParams) => void;
+  onEnableAdult: () => void; params: URLSearchParams; update: (params: URLSearchParams) => void;
   tags: TagCount[]; years: YearCount[]; authors: AuthorCount[];
   tagSearch: string; setTagSearch: (value: string) => void; authorSearch: string; setAuthorSearch: (value: string) => void;
   tagError: string; yearError: string; authorError: string;
   display: DisplaySettings; setDisplay: (value: DisplaySettings) => void;
 }
 
-export default function GalleryFilters({ params, update, tags, years, authors, tagSearch, setTagSearch, authorSearch, setAuthorSearch, tagError, yearError, authorError, display, setDisplay }: Props) {
+export default function GalleryFilters({ onEnableAdult, params, update, tags, years, authors, tagSearch, setTagSearch, authorSearch, setAuthorSearch, tagError, yearError, authorError, display, setDisplay }: Props) {
+  const { adult, site, disableAdult } = useApp()
   const [width, setWidth] = useState(params.get('minWidth') || '')
   const [height, setHeight] = useState(params.get('minHeight') || '')
   const minimumWidth = params.get('minWidth') || ''
@@ -31,8 +33,8 @@ export default function GalleryFilters({ params, update, tags, years, authors, t
   const change = (name: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(name, value); else next.delete(name); update(next) }
   const toggle = (name: string, value: string) => { const next = new URLSearchParams(params); const values = next.getAll(name); next.delete(name); for (const item of values) if (item !== value) next.append(name, item); if (!values.includes(value)) next.append(name, value); update(next) }
   const platform = params.get('platform') || ''
-  return <div className="filter-panel">
-    <section className="filter-section"><h2>平台</h2><div className="platform-options">{[{ key: '', label: '全部作品' }, { key: 'pixiv', label: 'Pixiv' }, { key: 'x', label: 'X' }].map(item => <button type="button" key={item.key} aria-pressed={platform === item.key} className={platform === item.key ? 'selected' : ''} onClick={() => { const next = new URLSearchParams(params); if (item.key) next.set('platform', item.key); else next.delete('platform'); next.delete('author'); next.delete('authorName'); update(next) }}><span>{item.label}</span>{platform === item.key && <Check size={15} />}</button>)}</div></section>
+  return <div className="filter-panel"><section className="filter-section adult-filter"><Switch isSelected={adult} onChange={value => value ? onEnableAdult() : disableAdult()} aria-label="显示 R18 作品"><Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control><span>R18</span>{site?.adultPasswordRequired && !site.adultUnlocked && <LockKeyhole size={12} />}</Switch.Content></Switch></section>
+    <section className="filter-section"><h2>平台</h2><div className="platform-options">{[{ key: '', label: '全部作品' }, { key: 'pixiv', label: 'Pixiv' }, { key: 'x', label: 'X' }, { key: 'local', label: '本地' }].map(item => <button type="button" key={item.key} aria-pressed={platform === item.key} className={platform === item.key ? 'selected' : ''} onClick={() => { const next = new URLSearchParams(params); if (item.key) next.set('platform', item.key); else next.delete('platform'); next.delete('author'); next.delete('authorName'); update(next) }}><span>{item.label}</span>{platform === item.key && <Check size={15} />}</button>)}</div></section>
     <section className="filter-section"><h2>排序</h2><Choice label="排序" value={params.get('sort') || 'published'} onChange={value => change('sort', value)} options={[{ key: 'published', label: '发布时间' }, { key: 'added', label: '添加时间' }]} /></section>
     <section className="filter-section"><h2>筛选</h2><h3>年份</h3><ErrorNotice>{yearError}</ErrorNotice><div className="filter-chips">{[...years].sort((a, b) => a.year === 'unknown' ? 1 : b.year === 'unknown' ? -1 : b.year.localeCompare(a.year)).map(item => <button type="button" key={item.year} aria-pressed={params.getAll('year').includes(item.year)} onClick={() => toggle('year', item.year)}>{item.year === 'unknown' ? '未知' : item.year}<span>{item.count}</span></button>)}</div>
       <h3>图片比例</h3><div className="filter-chips">{shapeOptions.map(item => <button type="button" key={item.key} aria-pressed={params.getAll('shape').includes(item.key)} onClick={() => toggle('shape', item.key)}>{item.label}</button>)}</div>

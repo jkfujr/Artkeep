@@ -8,6 +8,7 @@ services:
       ARCHIVE_ADMIN_PASSWORD: ${ARCHIVE_ADMIN_PASSWORD:-}
       ARCHIVE_PROXY: ${ARCHIVE_PROXY:-}
       ARCHIVE_COOKIES_FILE: ${ARCHIVE_COOKIES_FILE:-}
+      ARCHIVE_PIXIV_REFRESH_TOKEN: ${ARCHIVE_PIXIV_REFRESH_TOKEN:-}
     volumes:
       - ./data:/data
       - ${PIXIV_DIR:-./pixiv}:/library/pixiv:ro

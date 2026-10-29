@@ -52,17 +52,34 @@ type Work struct {
 }
 
 type Job struct {
-	ID        int64  `json:"id,string"`
-	Kind      string `json:"kind"`
-	Key       string `json:"-"`
-	Input     string `json:"input"`
-	Status    string `json:"status"`
-	Progress  int    `json:"progress"`
-	Total     int    `json:"total"`
-	Error     string `json:"error"`
-	WorkID    *int64 `json:"workId,string,omitempty"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID         int64     `json:"id,string"`
+	Kind       string    `json:"kind"`
+	Key        string    `json:"-"`
+	Input      string    `json:"input"`
+	Status     string    `json:"status"`
+	Progress   int       `json:"progress"`
+	Total      int       `json:"total"`
+	Error      string    `json:"error"`
+	WorkID     *int64    `json:"workId,string,omitempty"`
+	CreatedAt  string    `json:"createdAt"`
+	UpdatedAt  string    `json:"updatedAt"`
+	Items      []JobItem `json:"items,omitempty"`
+	Succeeded  int       `json:"succeeded"`
+	Existing   int       `json:"existing"`
+	Failed     int       `json:"failed"`
+	Phase      string    `json:"phase,omitempty"`
+	Bytes      int64     `json:"bytes"`
+	BytesTotal int64     `json:"bytesTotal"`
+}
+
+type JobItem struct {
+	ID      int64  `json:"id,string"`
+	JobID   int64  `json:"-"`
+	Input   string `json:"input"`
+	Payload string `json:"-"`
+	Status  string `json:"status"`
+	Error   string `json:"error"`
+	WorkID  *int64 `json:"workId,string,omitempty"`
 }
 
 type Filter struct {
