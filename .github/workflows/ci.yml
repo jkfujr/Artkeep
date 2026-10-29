@@ -1,0 +1,117 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: 构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: 前端构建、后端编译与 Go 测试
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          push: false
+          cache-from: type=gha,scope=artkeep
+          cache-to: type=gha,mode=max,scope=artkeep
+
+  release:
+    name: 发布 Release 与镜像
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 确定版本
+        id: version
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const image = `ghcr.io/${owner}/${repo}`.toLowerCase();
+            const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            const existing = releases.find(release => release.target_commitish === context.sha);
+            if (existing) {
+              core.setOutput('skip', String(!existing.draft));
+              core.setOutput('id', String(existing.id));
+              core.setOutput('tag', existing.tag_name);
+              core.setOutput('image', image);
+              return;
+            }
+            const refs = await github.paginate(github.rest.git.listMatchingRefs, { owner, repo, ref: 'tags/v' });
+            const versions = [...releases.map(release => release.tag_name), ...refs.map(ref => ref.ref.replace('refs/tags/', ''))]
+              .map(tag => /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag))
+              .filter(Boolean)
+              .map(match => match.slice(1).map(Number))
+              .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+            const latest = versions[0];
+            const tag = latest ? `v${latest[0]}.${latest[1]}.${latest[2] + 1}` : 'v0.1.0';
+            const { data: release } = await github.rest.repos.createRelease({
+              owner, repo, tag_name: tag, target_commitish: context.sha,
+              name: `Artkeep ${tag}`, draft: true, generate_release_notes: true,
+              body: `Docker 镜像：\`${image}:${tag}\`\n\n\`docker pull ${image}:${tag}\``
+            });
+            core.setOutput('skip', 'false');
+            core.setOutput('id', String(release.id));
+            core.setOutput('tag', tag);
+            core.setOutput('image', image);
+      - uses: docker/setup-buildx-action@v4
+        if: steps.version.outputs.skip != 'true'
+      - name: 登录 GHCR
+        if: steps.version.outputs.skip != 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 构建并发布镜像
+        if: steps.version.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: production
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}
+            ${{ steps.version.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.title=Artkeep
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+          cache-from: type=gha,scope=artkeep
+          cache-to: type=gha,mode=max,scope=artkeep
+      - name: 公开 Release
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/github-script@v9
+        env:
+          RELEASE_ID: ${{ steps.version.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              ...context.repo, release_id: Number(process.env.RELEASE_ID),
+              draft: false, make_latest: 'true'
+            });

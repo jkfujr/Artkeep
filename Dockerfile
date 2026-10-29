@@ -15,7 +15,12 @@ COPY web/embed.go ./web/embed.go
 COPY --from=frontend /src/web/dist/ ./web/dist/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /collection ./cmd/collection
 
-FROM python:3.12-slim-bookworm
+FROM backend AS test
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && go test -v ./...
+
+FROM python:3.12-slim-bookworm AS production
 ARG GALLERY_DL_VERSION=1.32.18
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
