@@ -16,7 +16,7 @@ async function restrictContent(data: unknown, type: string) {
   const text = typeof source === 'string' ? source : source instanceof Blob ? await source.text() : String(source)
   if (type === 'image/svg+xml') return DOMPurify.sanitize(text, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['script', 'foreignObject'] })
   const safe = DOMPurify.sanitize(text, { WHOLE_DOCUMENT: true, RETURN_DOM: true, FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'meta', 'base', 'foreignObject'], FORBID_ATTR: ['srcdoc'], ADD_ATTR: ['epub:type', 'xmlns:epub'], ALLOWED_URI_REGEXP: /^(?:(?:blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i })
-  const doc = new DOMParser().parseFromString(new XMLSerializer().serializeToString(safe), type)
+  const doc = new DOMParser().parseFromString(new XMLSerializer().serializeToString(safe), type === 'text/html' ? 'text/html' : 'application/xhtml+xml')
   if (type !== 'image/svg+xml') {
     const head = doc.querySelector('head')
     if (head) { const policy = doc.createElementNS('http://www.w3.org/1999/xhtml', 'meta'); policy.setAttribute('http-equiv', 'Content-Security-Policy'); policy.setAttribute('content', "default-src 'none'; script-src 'none'; style-src 'unsafe-inline' blob:; img-src blob: data:; font-src blob: data:; media-src blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"); head.prepend(policy) }
