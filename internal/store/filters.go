@@ -83,7 +83,7 @@ type AuthorCount struct {
 func (s *Store) Authors(f model.Filter, prefix string) ([]AuthorCount, error) {
 	f.Author = ""
 	where, args := filters(f)
-	where += " AND instr(lower(a.name),lower(?))>0"
+	where += " AND a.name<>'' AND instr(lower(a.name),lower(?))>0"
 	args = append(args, prefix)
 	rows, err := s.DB.Query("SELECT a.platform,a.source_id,a.name,count(*) FROM works w JOIN authors a ON a.id=w.author"+where+" GROUP BY a.id ORDER BY count(*) DESC,a.name,a.id LIMIT 100", args...)
 	if err != nil {

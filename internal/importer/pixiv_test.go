@@ -269,6 +269,14 @@ func TestFolderMetadataAndNovelEPUB(t *testing.T) {
 	if err != nil || len(candidates) != 1 || candidates[0].Work.Platform != "pixiv" || candidates[0].Work.SourceRating != 2 || len(candidates[0].Files) != 1 {
 		t.Fatalf("JSON 未关联媒体: %+v %v", candidates, err)
 	}
+	txt := "ID\n123\n\nURL\nhttps://www.pixiv.net/artworks/123\n\nUserID\n42\n\nUser\n作者\n\nTitle\nTXT 标题\n\nxRestrict\nR-18G\n\nDate\n2026-01-01T00:00:00Z\n"
+	if err = os.WriteFile(filepath.Join(source, "123-meta.txt"), []byte(txt), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err = collection.Discover(t.Context(), source, 0)
+	if err != nil || len(candidates) != 1 || candidates[0].Work.Title != "TXT 标题" || len(candidates[0].Files) != 1 {
+		t.Fatalf("混合元数据未按优先级合并: %+v %v", candidates, err)
+	}
 	if _, err = Directory(data, data); err == nil {
 		t.Fatal("允许导入数据目录")
 	}

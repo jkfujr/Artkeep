@@ -151,6 +151,9 @@ func (c *Collection) Discover(ctx context.Context, root string, rating int) ([]C
 		if len(v.Files) == 0 && v.Error == "" {
 			v.Error = "元数据没有对应媒体"
 		}
+		if e == nil {
+			groups[w.Platform+":"+w.SourceKind+":"+w.SourceID] = len(out)
+		}
 		out = append(out, v)
 	}
 	for _, path := range files {

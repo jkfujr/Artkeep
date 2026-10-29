@@ -82,7 +82,7 @@ func (q *Queue) downloadURL(ctx context.Context, jobID int64, raw string, rating
 	pixiv := map[string]any{"refresh-token": q.Config.PixivRefreshToken, "ugoira": true, "metadata": false, "related": false, "max-posts": 1, "postprocessors": []any{map[string]any{"name": "ugoira", "extension": "mp4", "ffmpeg-location": q.Config.FFmpeg, "ffmpeg-args": []string{"-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"}}, map[string]any{"name": "metadata", "mode": "json", "event": []string{"file", "skip"}, "filename": "{id}_p{num}.{extension}.json"}}}
 	novel := map[string]any{"refresh-token": q.Config.PixivRefreshToken, "full-series": false, "embeds": true, "covers": true, "max-posts": 1, "postprocessors": []any{map[string]any{"name": "metadata", "mode": "json", "event": []string{"file", "skip"}, "filename": "{id}_p{num}.{extension}.json"}}}
 	twitter := map[string]any{"size": []string{"orig"}, "videos": true, "quoted": false, "conversations": false, "retweets": false, "retries-api": 2, "ratelimit": "abort", "text-tweets": false, "cards": false, "unavailable": true, "metadata-url": "download_url", "filename": "{tweet_id}_{num}.{extension}", "postprocessors": []any{map[string]any{"name": "metadata", "mode": "json", "event": []string{"file", "skip"}, "filename": "{tweet_id}_{num}.{extension}.json"}}}
-	if q.Config.CookiesFile != "" {
+	if platform == "x" && q.Config.CookiesFile != "" {
 		if _, e := os.Stat(q.Config.CookiesFile); e != nil {
 			return 0, false, errors.New("X 登录文件不可用")
 		}
