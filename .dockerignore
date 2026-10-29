@@ -1,0 +1,9 @@
+data
+bin
+.git
+.env
+secrets
+config.local.json
+web/node_modules
+web/dist
+*.log

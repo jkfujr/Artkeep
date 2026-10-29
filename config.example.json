@@ -1,0 +1,10 @@
+{
+  "listen": "127.0.0.1:8080",
+  "data_dir": "./data",
+  "pixiv_dir": "F:/Downloads/pixiv",
+  "gallery_dl": "gallery-dl",
+  "ffmpeg": "ffmpeg",
+  "ffprobe": "ffprobe",
+  "cookies_file": "",
+  "proxy": ""
+}
