@@ -15,6 +15,14 @@ COPY web/embed.go ./web/embed.go
 COPY --from=frontend /src/web/dist/ ./web/dist/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /collection ./cmd/collection
 
+FROM backend AS binaries
+RUN mkdir -p /out/linux_amd64 /out/windows_amd64 \
+    && cp /collection /out/linux_amd64/artkeep \
+    && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/windows_amd64/artkeep.exe ./cmd/collection
+
+FROM scratch AS release-binaries
+COPY --from=binaries /out/ /
+
 FROM backend AS test
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/* \

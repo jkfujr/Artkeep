@@ -29,24 +29,19 @@ docker compose logs collection
 
 原收藏只读挂载；`data/` 保存索引、预览和下载内容，迁移时与原收藏一起保留。
 
-## 本地运行
+## 二进制
 
-需要 Go 1.26+、Node.js 24+；X 下载需要 [gallery-dl](https://gdl-org.github.io/docs/)，视频处理需要 FFmpeg／FFprobe。
+从 [Releases](https://github.com/jkfujr/Artkeep/releases/latest) 下载 Windows amd64 或 Linux amd64 压缩包，解压后复制配置文件，设置 `pixiv_dir`。
 
 ```powershell
-cd web
-npm ci
-npm run build
-cd ..
-go build -o bin/collection.exe ./cmd/collection
 Copy-Item config.example.json config.local.json
-./bin/collection.exe -config config.local.json
+./artkeep.exe -config config.local.json
 ```
 
-在 `config.local.json` 设置 `pixiv_dir`。首次管理员密码显示在启动终端。
+Linux 使用 `./artkeep -config config.local.json`。首次管理员密码显示在启动终端。X 下载需要 [gallery-dl](https://gdl-org.github.io/docs/)，视频处理需要 FFmpeg／FFprobe。
 
 X 帖子需要登录时，将 Cookie 文件放到 `secrets/x-cookies.txt`，并在 `.env` 设置 `ARCHIVE_COOKIES_FILE=/run/collection/x-cookies.txt`；代理可用 `ARCHIVE_PROXY` 设置。其他配置见 [config.example.json](config.example.json)。
 
 ## 自动发布
 
-PR 自动构建并运行 Go 测试。合并或推送到 `main` 后，通过 CI 自动创建正式 Release，并发布同版本与 `latest` 镜像；首版为 `v0.1.0`，之后补丁号递增。也可在 Actions 中手动运行 CI/CD。
+PR 自动构建并运行 Go 测试。合并或推送到 `main` 后，通过 CI 自动发布 Windows／Linux 二进制及同版本与 `latest` 镜像；首版为 `v0.1.0`，之后补丁号递增。也可在 Actions 中手动运行 CI/CD。
