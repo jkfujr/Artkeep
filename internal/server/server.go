@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/assets/{id}/{variant}", s.asset)
 	mux.HandleFunc("POST /api/admin/session", s.login)
 	mux.HandleFunc("DELETE /api/admin/session", s.login)
+	mux.HandleFunc("POST /api/admin/password", s.changeAdminPassword)
 	mux.HandleFunc("POST /api/adult/session", s.login)
 	mux.HandleFunc("DELETE /api/adult/session", s.login)
 	mux.HandleFunc("GET /api/admin/settings", s.settings)

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,10 +31,29 @@ func tokenHash(token string) string {
 
 func ResetAdmin(st *store.Store) error {
 	password := os.Getenv("ARCHIVE_ADMIN_PASSWORD")
-	if len(password) < 10 || len(password) > 72 {
-		return errors.New("请通过 ARCHIVE_ADMIN_PASSWORD 设置 10 至 72 字节的管理员密码")
+	if password == "" {
+		return errors.New("请通过 ARCHIVE_ADMIN_PASSWORD 设置管理员密码")
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return setAdminPassword(st, password)
+}
+
+const adminHashPrefix = "bcrypt-sha256:"
+
+func hashAdminPassword(password string) (string, error) {
+	// 先固定输入长度，避免 bcrypt 的 72 字节上限截断或拒绝长密码。
+	hash, err := bcrypt.GenerateFromPassword([]byte(tokenHash(password)), bcrypt.DefaultCost)
+	return adminHashPrefix + string(hash), err
+}
+
+func matchesAdminPassword(hash, password string) bool {
+	if strings.HasPrefix(hash, adminHashPrefix) {
+		return bcrypt.CompareHashAndPassword([]byte(strings.TrimPrefix(hash, adminHashPrefix)), []byte(tokenHash(password))) == nil
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+func setAdminPassword(st *store.Store, password string) error {
+	hash, err := hashAdminPassword(password)
 	if err != nil {
 		return err
 	}
@@ -42,7 +62,7 @@ func ResetAdmin(st *store.Store) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec("INSERT INTO settings(key,value) VALUES('admin_password',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", string(hash)); err != nil {
+	if _, err = tx.Exec("INSERT INTO settings(key,value) VALUES('admin_password',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", hash); err != nil {
 		return err
 	}
 	if _, err = tx.Exec("DELETE FROM sessions WHERE scope='admin'"); err != nil {
@@ -64,14 +84,11 @@ func (s *Server) bootstrap() error {
 		password = randomToken()[:20]
 		log.Printf("首次启动的管理员密码: %s", password)
 	}
-	if len(password) < 10 || len(password) > 72 {
-		return errors.New("管理员密码须为 10 至 72 字节")
-	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashed, err := hashAdminPassword(password)
 	if err != nil {
 		return err
 	}
-	if err = s.Store.SetSetting("admin_password", string(hashed)); err != nil {
+	if err = s.Store.SetSetting("admin_password", hashed); err != nil {
 		return err
 	}
 	return s.Store.SetSetting("adult_version", randomToken())
@@ -197,7 +214,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
-	if len(input.Password) > 72 {
+	if scope == "adult" && len(input.Password) > 72 {
 		fail(w, 401, "invalid_password", "密码不正确")
 		return
 	}
@@ -217,11 +234,54 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	if hash == "" || bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)) != nil {
+	valid := false
+	if hash != "" {
+		if scope == "admin" {
+			valid = matchesAdminPassword(hash, input.Password)
+		} else {
+			valid = bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)) == nil
+		}
+	}
+	if !valid {
 		fail(w, 401, "invalid_password", "密码不正确")
 		return
 	}
 	if err = s.issueSession(w, r, scope); err != nil {
+		s.internal(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var input struct {
+		Current  string `json:"currentPassword"`
+		Password string `json:"newPassword"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Password == "" {
+		fail(w, 400, "password_required", "请输入新密码")
+		return
+	}
+	hash, err := s.Store.Setting("admin_password")
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if !matchesAdminPassword(hash, input.Current) {
+		fail(w, 401, "invalid_password", "当前密码不正确")
+		return
+	}
+	if err = setAdminPassword(s.Store, input.Password); err != nil {
+		s.internal(w, err)
+		return
+	}
+	if err = s.issueSession(w, r, "admin"); err != nil {
 		s.internal(w, err)
 		return
 	}

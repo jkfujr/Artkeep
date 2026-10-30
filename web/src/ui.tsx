@@ -2,9 +2,9 @@ import { Button, Input, Label, ListBox, Modal, Select, TextField } from '@heroui
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-export function Field({ label, value, onChange, type = 'text', placeholder, autoFocus, required = false, disabled = false, name }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; autoFocus?: boolean; required?: boolean; disabled?: boolean; name?: string }) {
+export function Field({ label, value, onChange, type = 'text', placeholder, autoFocus, required = false, disabled = false, name, autoComplete }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; autoFocus?: boolean; required?: boolean; disabled?: boolean; name?: string; autoComplete?: string }) {
   return <TextField className="field" isRequired={required} isDisabled={disabled} name={name}>
-    <Label>{label}</Label><Input type={type} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} autoFocus={autoFocus} autoComplete={type === 'password' ? 'current-password' : undefined} />
+    <Label>{label}</Label><Input type={type} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} autoFocus={autoFocus} autoComplete={autoComplete ?? (type === 'password' ? 'current-password' : undefined)} />
   </TextField>
 }
 export function Choice({ label, value, onChange, options, className = '' }: { label: string; value: string; onChange: (value: string) => void; options: { key: string; label: string }[]; className?: string }) {

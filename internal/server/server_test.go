@@ -8,6 +8,7 @@ import (
 	"collection/internal/queue"
 	"collection/internal/store"
 	"encoding/json"
+	"golang.org/x/crypto/bcrypt"
 	"image"
 	"image/color"
 	"image/png"
@@ -201,6 +202,104 @@ func TestRestrictedBrowsingAndLocalOverrides(t *testing.T) {
 	}
 	if bytes.Contains(b, []byte(c.PixivDir)) || bytes.Contains(b, []byte("raw_metadata")) {
 		t.Fatal("接口泄露存储信息")
+	}
+}
+
+func TestAdminPasswordChangeAndLengthCompatibility(t *testing.T) {
+	t.Setenv("ARCHIVE_ADMIN_PASSWORD", "x")
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.DB.Close()
+	c := config.Config{DataDir: dir}
+	m := media.New(c)
+	app, err := New(st, m, queue.New(st, m, c), c, fstest.MapFS{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.Handler()
+	request := func(path string, body map[string]string, cookies []*http.Cookie) *httptest.ResponseRecorder {
+		raw, e := json.Marshal(body)
+		if e != nil {
+			t.Fatal(e)
+		}
+		req := httptest.NewRequest("POST", path, bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		r := httptest.NewRecorder()
+		handler.ServeHTTP(r, req)
+		return r
+	}
+	login := func(password string) *httptest.ResponseRecorder {
+		return request("/api/admin/session", map[string]string{"password": password}, nil)
+	}
+	if r := login("x"); r.Code != 200 {
+		t.Fatal("首次启动仍限制短密码", r.Body.String())
+	}
+	legacy, e := bcrypt.GenerateFromPassword([]byte("legacy-password"), bcrypt.DefaultCost)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if err = st.SetSetting("admin_password", string(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	first := login("legacy-password")
+	second := login("legacy-password")
+	if first.Code != 200 || second.Code != 200 {
+		t.Fatal("旧密码记录无法登录")
+	}
+	admin := first.Result().Cookies()
+	other := second.Result().Cookies()
+	change := map[string]string{"currentPassword": "legacy-password", "newPassword": "abc"}
+	if r := request("/api/admin/password", change, nil); r.Code != 401 {
+		t.Fatal("未登录可修改管理员密码")
+	}
+	if r := request("/api/admin/password", map[string]string{"currentPassword": "wrong", "newPassword": "abc"}, admin); r.Code != 401 {
+		t.Fatal("错误当前密码被接受")
+	}
+	if r := request("/api/admin/password", map[string]string{"currentPassword": "legacy-password", "newPassword": ""}, admin); r.Code != 400 {
+		t.Fatal("空密码被保存")
+	}
+	changed := request("/api/admin/password", change, admin)
+	if changed.Code != 200 {
+		t.Fatal("短密码修改失败", changed.Body.String())
+	}
+	isAdmin := func(cookies []*http.Cookie) bool {
+		req := httptest.NewRequest("GET", "/api/site", nil)
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		return app.isAdmin(req)
+	}
+	if isAdmin(admin) || isAdmin(other) || !isAdmin(changed.Result().Cookies()) {
+		t.Fatal("修改密码未替换管理员会话")
+	}
+	if r := login("legacy-password"); r.Code != 401 {
+		t.Fatal("修改后旧密码仍有效")
+	}
+	if r := login("abc"); r.Code != 200 {
+		t.Fatal("修改后新密码无法登录")
+	}
+	long := strings.Repeat("长密码", 40) + "尾"
+	updated := request("/api/admin/password", map[string]string{"currentPassword": "abc", "newPassword": long}, changed.Result().Cookies())
+	if updated.Code != 200 {
+		t.Fatal("长密码被拒绝", updated.Body.String())
+	}
+	if r := login(long); r.Code != 200 {
+		t.Fatal("长密码无法登录", r.Body.String())
+	}
+	if r := login(strings.TrimSuffix(long, "尾") + "另"); r.Code != 401 {
+		t.Fatal("长密码尾部被截断")
+	}
+	if err = ResetAdmin(st); err != nil {
+		t.Fatal("命令行仍限制短密码", err)
+	}
+	if r := login("x"); r.Code != 200 {
+		t.Fatal("命令行重置后无法登录")
 	}
 }
 
