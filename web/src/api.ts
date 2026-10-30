@@ -4,7 +4,7 @@ export interface Asset {
   url: string; thumbnail: string; preview: string;
 }
 export interface Work {
-  id: string; platform: 'pixiv' | 'x' | 'local'; sourceKind: string; sourceId: string; sourceUrl: string;
+  id: string; platform: 'pixiv' | 'x' | 'fanbox' | 'local'; sourceKind: string; sourceId: string; sourceUrl: string;
   title: string; description: string; authorId: string; authorName: string; authorUrl: string;
   publishedAt: string; addedAt: string; sourceRating: number; ratingOverride: number | null;
   rating: number; sourceTags: string[]; localTags: string[]; tags: string[]; mediaCount: number;
@@ -31,6 +31,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 }
 export function mutate<T>(path: string, method: string, body: unknown = {}): Promise<T> { return api<T>(path, { method, body: JSON.stringify(body) }) }
 export function message(error: unknown) { return error instanceof Error ? error.message : '操作失败，请重试' }
+export function platformLabel(platform: string) { return ({ pixiv: 'Pixiv', x: 'X', fanbox: 'FANBOX', local: '本地' } as Record<string, string>)[platform] || platform }
 export function isVideo(asset: Asset) { return asset.kind === 'video' || ['mp4', 'webm', 'mov'].includes(asset.format) }
 export function dateLabel(value: string) { if (!value || Number.isNaN(new Date(value).getTime())) return ''; return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) }
 export function fileSize(bytes: number) { return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB` }

@@ -1,6 +1,7 @@
 import { Button, Input, Label, ListBox, Modal, Select, TextField } from '@heroui/react'
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { platformLabel } from './api'
 
 export function Field({ label, value, onChange, type = 'text', placeholder, autoFocus, required = false, disabled = false, name, autoComplete }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; autoFocus?: boolean; required?: boolean; disabled?: boolean; name?: string; autoComplete?: string }) {
   return <TextField className="field" isRequired={required} isDisabled={disabled} name={name}>
@@ -22,5 +23,5 @@ export function Dialog({ title, open, onClose, children, footer, wide = false }:
   </Modal.Backdrop></Modal>
 }
 export function ErrorNotice({ children }: { children: ReactNode }) { return children ? <div className="error-notice" role="alert">{children}</div> : null }
-export function Platform({ platform }: { platform: string }) { return <span className={`platform platform-${platform}`}><span className="platform-dot" />{platform === 'pixiv' ? 'Pixiv' : platform === 'local' ? '本地' : 'X'}</span> }
+export function Platform({ platform }: { platform: string }) { return <span className={`platform platform-${platform}`}><span className="platform-dot" />{platformLabel(platform)}</span> }
 export function Rating({ rating }: { rating: number }) { return rating > 0 ? <span className={`rating rating-${rating}`}>{rating === 2 ? 'R-18G' : 'R-18'}</span> : null }

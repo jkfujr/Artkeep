@@ -19,6 +19,7 @@ type BatchInput struct {
 	Path     string   `json:"path,omitempty"`
 	UploadID string   `json:"uploadId,omitempty"`
 	Rating   int      `json:"rating"`
+	Format   string   `json:"format,omitempty"`
 }
 
 func (q *Queue) collection() *importer.Collection {
@@ -72,7 +73,13 @@ func (q *Queue) batch(ctx context.Context, j *model.Job) error {
 				root = filepath.Join(q.Config.DataDir, "staging", "upload-"+input.UploadID, "files")
 			}
 			q.Store.Transfer(j.ID, "parsing", 0, 0)
-			candidates, e := q.collection().Discover(ctx, root, input.Rating)
+			var candidates []importer.Candidate
+			var e error
+			if input.Format == "fanbox" {
+				candidates, e = q.collection().DiscoverFanbox(ctx, root, input.Rating)
+			} else {
+				candidates, e = q.collection().Discover(ctx, root, input.Rating)
+			}
 			if e != nil {
 				return e
 			}

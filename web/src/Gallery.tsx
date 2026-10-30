@@ -4,7 +4,7 @@ import { Button, Drawer } from '@heroui/react'
 import { MasonryPhotoAlbum } from 'react-photo-album'
 import type { Photo } from 'react-photo-album'
 import { BookOpen, Images, Layers2, Play, Search, SlidersHorizontal, X } from 'lucide-react'
-import { api, ApiError, isVideo, message } from './api'
+import { api, ApiError, isVideo, message, platformLabel } from './api'
 import type { AuthorCount, TagCount, Work, WorkList, YearCount } from './api'
 import { ErrorNotice, Platform, Rating } from './ui'
 import { useApp } from './App'
@@ -97,7 +97,7 @@ export default function Gallery() {
   const cardWidth = Math.max(1, (width - (columns - 1) * display.gap) / columns)
   const photos = useMemo<WorkPhoto[]>(() => data.items.map(work => { const sourceRatio = work.cover && work.cover.width > 0 && work.cover.height > 0 ? work.cover.height / work.cover.width : 1.25; const ratio = display.fit === 'crop' ? Math.max(0.65, Math.min(1.65, sourceRatio)) : sourceRatio; return { key: work.id, src: work.cover?.thumbnail || '/placeholder.svg', width: cardWidth, height: cardWidth * ratio + (compact ? 72 : 88), work, ratio } }), [data.items, display.fit, cardWidth, compact])
   const pills: { key: string; label: string; remove: () => void }[] = []
-  if (params.get('platform')) pills.push({ key: 'platform', label: params.get('platform') === 'pixiv' ? 'Pixiv' : params.get('platform') === 'local' ? '本地' : 'X', remove: () => { const next = new URLSearchParams(params); next.delete('platform'); next.delete('author'); next.delete('authorName'); update(next) } })
+  if (params.get('platform')) pills.push({ key: 'platform', label: platformLabel(params.get('platform')!), remove: () => { const next = new URLSearchParams(params); next.delete('platform'); next.delete('author'); next.delete('authorName'); update(next) } })
   if (params.get('q')) pills.push({ key: 'q', label: params.get('q')!, remove: () => change('q', '') })
   if (params.get('author')) pills.push({ key: 'author', label: params.get('authorName') || '作者', remove: () => { const next = new URLSearchParams(params); next.delete('author'); next.delete('authorName'); update(next) } })
   selectedTags.forEach(tag => pills.push({ key: `tag:${tag}`, label: `#${tag}`, remove: () => toggleTag(tag) }))

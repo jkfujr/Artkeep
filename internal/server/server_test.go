@@ -456,6 +456,95 @@ func TestUploadResumeManifestChangesAndAccess(t *testing.T) {
 	}
 }
 
+func TestFanboxImportOptions(t *testing.T) {
+	t.Setenv("ARCHIVE_ADMIN_PASSWORD", "test-admin-password")
+	base := t.TempDir()
+	c := config.Config{DataDir: filepath.Join(base, "data")}
+	if err := os.MkdirAll(c.DataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(c.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.DB.Close()
+	m := media.New(c)
+	app, err := New(st, m, queue.New(st, m, c), c, fstest.MapFS{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.Handler()
+	var cookies []*http.Cookie
+	post := func(path string, input any) *httptest.ResponseRecorder {
+		t.Helper()
+		raw, e := json.Marshal(input)
+		if e != nil {
+			t.Fatal(e)
+		}
+		req := httptest.NewRequest("POST", path, bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		r := httptest.NewRecorder()
+		handler.ServeHTTP(r, req)
+		return r
+	}
+	cookies = post("/api/admin/session", map[string]string{"password": "test-admin-password"}).Result().Cookies()
+	check := func(r *httptest.ResponseRecorder, format string, rating int) {
+		t.Helper()
+		if r.Code != 202 {
+			t.Fatal("导入请求失败", r.Body.String())
+		}
+		var j model.Job
+		if err := json.Unmarshal(r.Body.Bytes(), &j); err != nil {
+			t.Fatal(err)
+		}
+		var input queue.BatchInput
+		if err := json.Unmarshal([]byte(j.Input), &input); err != nil {
+			t.Fatal(err)
+		}
+		if input.Format != format || input.Rating != rating {
+			t.Fatalf("格式或分级未存入任务: %+v", input)
+		}
+	}
+	for _, test := range []struct {
+		format string
+		rating *int
+		want   int
+	}{{"", nil, 0}, {"auto", nil, 0}, {"fanbox", nil, 1}, {"fanbox", new(int), 0}} {
+		input := map[string]any{"kind": "server", "path": base}
+		if test.format != "" {
+			input["format"] = test.format
+		}
+		if test.rating != nil {
+			input["rating"] = *test.rating
+		}
+		check(post("/api/admin/imports", input), test.format, test.want)
+	}
+	if r := post("/api/admin/imports", map[string]any{"kind": "server", "path": base, "format": "other"}); r.Code != 400 {
+		t.Fatal("接受无效导入格式")
+	}
+	create := func() string {
+		t.Helper()
+		r := post("/api/admin/uploads", map[string]any{"name": "fanbox", "files": []uploadFile{{Path: "fanbox/42-作者/2026-01-01-作品/0.png", Size: 0}}})
+		if r.Code != 200 {
+			t.Fatal(r.Body.String())
+		}
+		var upload uploadSession
+		if err := json.Unmarshal(r.Body.Bytes(), &upload); err != nil {
+			t.Fatal(err)
+		}
+		return upload.ID
+	}
+	id := create()
+	if r := post("/api/admin/uploads/"+id+"/complete", map[string]string{"format": "other"}); r.Code != 400 {
+		t.Fatal("上传完成接口接受无效格式")
+	}
+	check(post("/api/admin/uploads/"+id+"/complete", map[string]string{"format": "fanbox"}), "fanbox", 1)
+	check(post("/api/admin/imports", map[string]any{"kind": "upload", "uploadId": create(), "format": "fanbox", "rating": 0}), "fanbox", 0)
+}
+
 func idString(id int64) string { return strconv.FormatInt(id, 10) }
 
 func TestGalleryFiltersAndCandidates(t *testing.T) {

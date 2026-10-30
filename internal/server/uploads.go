@@ -239,14 +239,19 @@ func (s *Server) uploadComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Rating int `json:"rating"`
+		Rating *int   `json:"rating"`
+		Format string `json:"format"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	s.completeUploadImport(w, r, r.PathValue("upload"), input.Rating)
+	rating, ok := importOptions(w, input.Format, input.Rating)
+	if !ok {
+		return
+	}
+	s.completeUploadImport(w, r, r.PathValue("upload"), rating, input.Format)
 }
-func (s *Server) completeUploadImport(w http.ResponseWriter, r *http.Request, id string, rating int) {
+func (s *Server) completeUploadImport(w http.ResponseWriter, r *http.Request, id string, rating int, format string) {
 	s.uploadMu.Lock()
 	defer s.uploadMu.Unlock()
 	if rating < 0 || rating > 2 {
@@ -290,7 +295,7 @@ func (s *Server) completeUploadImport(w http.ResponseWriter, r *http.Request, id
 			out.Close()
 		}
 	}
-	raw, _ := json.Marshal(queue.BatchInput{Source: "upload", UploadID: v.ID, Rating: rating})
+	raw, _ := json.Marshal(queue.BatchInput{Source: "upload", UploadID: v.ID, Rating: rating, Format: format})
 	j, err := s.Queue.Enqueue("batch", "upload:"+v.ID, string(raw))
 	if err != nil {
 		s.internal(w, err)

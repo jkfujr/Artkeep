@@ -312,6 +312,25 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]any{"adultPasswordRequired": required == "true", "adultPasswordSet": password != "", "pixivDirectory": s.Config.PixivDir, "galleryDlAvailable": galleryErr == nil, "ffmpegAvailable": ffmpegErr == nil, "ffprobeAvailable": ffprobeErr == nil, "cookiesConfigured": s.Config.CookiesFile != ""})
 }
 
+func importOptions(w http.ResponseWriter, format string, rating *int) (int, bool) {
+	if format != "" && format != "auto" && format != "fanbox" {
+		fail(w, 400, "invalid_format", "导入格式无效")
+		return 0, false
+	}
+	value := 0
+	if format == "fanbox" {
+		value = 1
+	}
+	if rating != nil {
+		value = *rating
+	}
+	if value < 0 || value > 2 {
+		fail(w, 400, "invalid_rating", "分级无效")
+		return 0, false
+	}
+	return value, true
+}
+
 func (s *Server) imports(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -322,16 +341,17 @@ func (s *Server) imports(w http.ResponseWriter, r *http.Request) {
 		URLs     []string `json:"urls"`
 		Path     string   `json:"path"`
 		UploadID string   `json:"uploadId"`
-		Rating   int      `json:"rating"`
+		Rating   *int     `json:"rating"`
+		Format   string   `json:"format"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	batch := queue.BatchInput{Source: input.Kind, Rating: input.Rating}
-	if batch.Rating < 0 || batch.Rating > 2 {
-		fail(w, 400, "invalid_rating", "分级无效")
+	rating, ok := importOptions(w, input.Format, input.Rating)
+	if !ok {
 		return
 	}
+	batch := queue.BatchInput{Source: input.Kind, Rating: rating, Format: input.Format}
 	switch input.Kind {
 	case "url", "x":
 		batch.Source = "url"
@@ -364,7 +384,7 @@ func (s *Server) imports(w http.ResponseWriter, r *http.Request) {
 		}
 	case "migration":
 	case "upload":
-		s.completeUploadImport(w, r, input.UploadID, batch.Rating)
+		s.completeUploadImport(w, r, input.UploadID, batch.Rating, batch.Format)
 		return
 	default:
 		fail(w, 400, "invalid_kind", "不支持的导入来源")
