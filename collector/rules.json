@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://www.pixiv.net/"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||pximg.net",
+      "initiatorDomains": [
+        "mnpnichbnhendagdhojcdbbcfcakffjj"
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "image",
+        "media"
+      ]
+    }
+  }
+]

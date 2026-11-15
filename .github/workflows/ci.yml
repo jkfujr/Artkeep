@@ -86,7 +86,7 @@ jobs:
           context: .
           target: release-binaries
           platforms: linux/amd64
-          outputs: type=local,dest=bin/release
+          outputs: type=local,dest=artifacts/release
           cache-from: type=gha,scope=artkeep
           cache-to: type=gha,mode=max,scope=artkeep
       - name: 打包二进制
@@ -94,11 +94,11 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          mkdir -p bin/releases
-          cp config.example.json README.md bin/release/linux_amd64/
-          cp config.example.json README.md bin/release/windows_amd64/
-          tar -C bin/release/linux_amd64 -czf "bin/releases/artkeep_${TAG}_linux_amd64.tar.gz" artkeep config.example.json README.md
-          cd bin/release/windows_amd64
+          mkdir -p artifacts/releases
+          cp config.example.json README.md artifacts/release/linux_amd64/
+          cp config.example.json README.md artifacts/release/windows_amd64/
+          tar -C artifacts/release/linux_amd64 -czf "artifacts/releases/artkeep_${TAG}_linux_amd64.tar.gz" artkeep config.example.json README.md
+          cd artifacts/release/windows_amd64
           zip -q "../../releases/artkeep_${TAG}_windows_amd64.zip" artkeep.exe config.example.json README.md
       - name: 上传二进制附件
         if: steps.version.outputs.skip != 'true'
@@ -110,13 +110,13 @@ jobs:
             const fs = require('node:fs');
             const release_id = Number(process.env.RELEASE_ID);
             const assets = await github.paginate(github.rest.repos.listReleaseAssets, { ...context.repo, release_id, per_page: 100 });
-            for (const name of fs.readdirSync('bin/releases')) {
+            for (const name of fs.readdirSync('artifacts/releases')) {
               const existing = assets.find(asset => asset.name === name);
               if (existing?.state === 'uploaded') continue;
               if (existing) throw new Error(`附件 ${name} 尚未上传完成，请先核实 Release 附件状态`);
               await github.rest.repos.uploadReleaseAsset({
                 ...context.repo, release_id, name,
-                data: fs.readFileSync(`bin/releases/${name}`),
+                data: fs.readFileSync(`artifacts/releases/${name}`),
                 headers: { 'content-type': 'application/octet-stream' }
               });
             }

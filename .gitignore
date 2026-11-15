@@ -3,6 +3,9 @@
 /bin/
 /.env
 /secrets/
-/web/node_modules/
-/web/dist/
+/artifacts/
+/collector/_metadata/
+/frontend/node_modules/
+/frontend/dist/
+/backend/web/dist/
 *.log

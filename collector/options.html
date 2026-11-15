@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Artkeep 设置</title><link rel="stylesheet" href="style.css"></head><body><main><header><h1>Artkeep 设置</h1><nav><a href="tasks.html">任务</a></nav></header>
+<form id="settings"><fieldset><legend>保存位置</legend><label>Artkeep 服务器<input id="server" type="url" autocomplete="url" placeholder="https://artkeep.example.com"></label><label>访问令牌<input id="token" type="password" autocomplete="off"></label><label>扩展来源<input id="origin" readonly></label><div class="actions"><button type="button" id="copy-origin">复制扩展来源</button><button type="button" id="test">测试连接</button></div><label>保存去向<select id="destination"><option value="artkeep">Artkeep</option><option value="local">本地</option><option value="both">本地与 Artkeep</option><option value="ask">每次询问</option></select></label></fieldset>
+<fieldset><legend>Pixiv</legend><label>文件命名<input id="naming" required></label><label class="check"><input id="bookmarkAfterSave" type="checkbox">保存成功后收藏原作</label></fieldset>
+<fieldset><legend>X</legend><label>文件命名<input id="xNaming" required></label></fieldset>
+<fieldset><legend>PPD</legend><label class="check"><input id="takeover" type="checkbox">接管 PPD 下载</label></fieldset>
+<div class="actions"><button class="primary" type="submit">保存设置</button></div><output id="result" role="status" aria-live="polite"></output></form>
+<section class="import-file"><label>导入 PPD 配置<input id="import" type="file" accept="application/json,.json"></label></section>
+</main><script type="module" src="options.js"></script></body></html>

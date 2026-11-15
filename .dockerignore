@@ -4,6 +4,8 @@ bin
 .env
 secrets
 config.local.json
-web/node_modules
-web/dist
+artifacts
+frontend/node_modules
+frontend/dist
+backend/web/dist
 *.log

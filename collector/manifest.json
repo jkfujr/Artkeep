@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "Artkeep Collector",
+  "version": "0.1.1",
+  "description": "将 Pixiv 与 X 作品保存到 Artkeep 或本机",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA12HpgvRyb6dCA3iaheFfI2ZdRCmn7p83ria188oCuN61Nck02i/84dauC73eZktGZcHQ6pNE9a0tTDymfrMKMI6IUlYAXwCRu7UqRjwqtsLVLmzIc0QXQRO8fxjEkBl7+B74IhzCPxCcWANdIBAtlVuehPtQXxm4tTGHRvMDRFwngOu8z7oB6TxSQohefn0HaEx4ofCyqfmMJu5wVPUeXo/8/VYgoxv5V02qPHqiejBWu8UC7Y5Y6r/lLJx5yHTnyvMtyBfTW1rVD9mF9TtnPsWquZo2419bYzrf1e1XQ4ar+IbegqsjkP80qNX7WsetKmzSWsImNpNdE2PJ6LfMVwIDAQAB",
+  "minimum_chrome_version": "124",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads",
+    "offscreen",
+    "scripting",
+    "alarms",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://www.pixiv.net/*",
+    "https://*.pximg.net/*",
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://pbs.twimg.com/*",
+    "https://video.twimg.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Artkeep Collector",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.pixiv.net/*"
+      ],
+      "js": [
+        "ppd.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "x-observer.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.pixiv.net/*",
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "media",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
+}
